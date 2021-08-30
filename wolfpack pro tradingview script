@@ -1,0 +1,461 @@
+//@version=4
+//This is a reverse engineered free Version of an Indicator that normally costs a huge amounts of money. 
+//That indicator claims to be even better than Market Cipher. Turns out, this Indicator - just as Market Cipher, 
+//uses freely available Indicators and just puts them in a nice looking package I packed in as much as it made sense, the original Indicator is visually very cluttered
+//with useless stuff that I have left out for a cleaner look, like for example the truckload of crossing signals, MFI and that autotrendline feature that no one really needs. 
+//All the strategies that can be found on the Internet regaring this Indicator are still valid though.
+//Big shoutout to JayTradingCharts for the divergence features and SimpleCryptoLife for the market structure analyzer.
+
+study(title="Rainbow Indicator - Polfwack Pro", shorttitle="Polfwack Pro", resolution="", overlay=false, precision = 0, format=format.volume)
+
+//Polfwack Inputs
+len1 = input(title="Polfwack Wave Fast Length", type=input.integer, defval=5)
+len2 = input(title="Polfwack Wave Slow Length", type=input.integer, defval=34)
+src = input(title="Polfwack Wave Source", type=input.source, defval=hl2)
+len3 = input(title="Monster Wave Length", type=input.integer, defval=5)
+
+//Polfwack Waves...or also called normal AO - Awesome Oscillator
+ao = (sma(src,len1) - sma(src,len2))
+
+//Monster Waves...or also called Acceleration Oscillator
+ac = ao - sma(ao, len3)
+
+//Wave Colors
+acColor = ac >= 0 ? (ac[1] < ac ? #9a682b : #765123) : (ac[1] < ac ? #2c63d2 : #2a4aa2)
+
+//BB
+lengthBB = input(20, minval=1, title="Bollinger Bands Length")
+mult = input(0.8, minval=0.001, maxval=50, title="Bollinger Bands StdDev")
+aoBB = input(10, minval=1, title="Bollinger Bands Polfwack Wave MA")
+basis = sma(ao, aoBB)
+dev = mult * stdev(src, lengthBB)
+upper = basis + dev
+lower = basis - dev
+offset = input(0, "Bollinger Bands Offset", type = input.integer, minval = -500, maxval = 500)
+
+// RSI+MFI
+rsiMFIShow = input(false, title = 'Show MFI', type = input.bool)
+rsiMFIperiod = input(60,title = 'MFI Period', type = input.integer)
+rsiMFIMultiplier = input(150, title = 'MFI Area multiplier', type = input.float)
+rsiMFIPosY = input(2.5, title = 'MFI Area Y Pos', type = input.float)
+
+// RSI+MFI
+f_rsimfi(_period, _multiplier, _tf) => security(syminfo.tickerid, _tf, sma(((close - open) / (high - low)) * _multiplier, _period) - rsiMFIPosY)
+// RSI + MFI Area
+rsiMFI = f_rsimfi(rsiMFIperiod, rsiMFIMultiplier, timeframe.period)
+rsiMFIColor = rsiMFI > 0 ? #3ee145 : #ff3d2e
+
+zLine = plot(0, color = color.white)
+
+//Bar 1 - RSI
+
+lenRSI = input(title="RSI Period", minval=1, defval=14)
+srcRSI = input(title="RSI Source", defval=close)
+lbR = input(title="Divergence Pivot Lookback Right", defval=5)
+lbL = input(title="Divergence Pivot Lookback Left", defval=5)
+rangeUpper = input(title="Divergence Max of Lookback Range", defval=60)
+rangeLower = input(title="Divergence Min of Lookback Range", defval=5)
+plotBull = input(title="Divergence Plot Bullish", defval=true)
+plotHiddenBull = input(title="Divergence Plot Hidden Bullish", defval=true)
+plotBear = input(title="Divergence Plot Bearish", defval=true)
+plotHiddenBear = input(title="Divergence Plot Hidden Bearish", defval=true)
+
+bearColor = color.red
+bullColor = color.green
+hiddenBullColor = color.new(color.blue, 50)
+hiddenBearColor = color.new(color.orange, 50)
+textColor = color.white
+noneColor = color.new(color.white, 100)
+osc2 = rsi(srcRSI, lenRSI)
+overs = osc2 < 30
+overb = osc2 > 70
+rsiblack = osc2 > 0 and osc2 < 100
+plFound = na(pivotlow(osc2, lbL, lbR)) ? false : true
+phFound = na(pivothigh(osc2, lbL, lbR)) ? false : true
+_inRange(cond) =>
+	bars = barssince(cond == true)
+	rangeLower <= bars and bars <= rangeUpper
+oscHL = osc2[lbR] > valuewhen(plFound, osc2[lbR], 1) and _inRange(plFound[1])
+priceLL = low[lbR] < valuewhen(plFound, low[lbR], 1)
+bullCond = plotBull and priceLL and oscHL and plFound
+oscLL = osc2[lbR] < valuewhen(plFound, osc2[lbR], 1) and _inRange(plFound[1])
+priceHL = low[lbR] > valuewhen(plFound, low[lbR], 1)
+hiddenBullCond = plotHiddenBull and priceHL and oscLL and plFound
+oscLH = osc2[lbR] < valuewhen(phFound, osc2[lbR], 1) and _inRange(phFound[1])
+priceHH = high[lbR] > valuewhen(phFound, high[lbR], 1)
+bearCond = plotBear and priceHH and oscLH and phFound
+oscHH = osc2[lbR] > valuewhen(phFound, osc2[lbR], 1) and _inRange(phFound[1])
+priceLH = high[lbR] < valuewhen(phFound, high[lbR], 1)
+hiddenBearCond = plotHiddenBear and priceLH and oscHH and phFound
+
+// Bar 2 - "Trend"
+
+conversionPeriods = input(9, minval=1, title="Kumo Conversion Line Length")
+basePeriods = input(26, minval=1, title="Kumo Base Line Length")
+laggingSpan2Periods = input(52, minval=1, title="Kumo Lagging Span 2 Length")
+displacement = input(1, minval=0, title="Kumo Displacement")
+donchian(len) => avg(lowest(len), highest(len))
+conversionLine = donchian(conversionPeriods)
+baseLine = donchian(basePeriods)
+leadLine1 = avg(conversionLine, baseLine)
+leadLine2 = donchian(laggingSpan2Periods)
+crossKumoCond = cross(leadLine1, leadLine2)
+
+// Bar 3 "Market Condition and Trendline Breaks"
+
+string inputLabelDisplayMode = "Off" 
+bool inputKeepOnlyLastLabel = false
+string currentStateLabelDisplayMode = "Off"
+int inputCurrentStateLabelOffset = 3
+bool inputMarketBiasBackgroundFill = true
+string inputShowBreakMode = input(type=input.string, defval="Reversals Only", title="Show Breaks in Market Structure", options=["Reversals Only","All","Off"])
+bool inputShowBreakLines = false
+bool inputShowBreakPrice = false
+bool inputShowEntries = false
+bool inputForceConfirmation = input(type=input.bool, defval=true, title="Force Confirmation of Highs & Lows After N Bars")
+int inputForceBars = input(type=input.integer, minval=1, maxval=999, defval=20, title="Number of Bars")
+
+bool useShortLabelText = inputLabelDisplayMode == "Short Text"
+bool showLocalFractals = inputLabelDisplayMode != "Off"
+bool showReversalsOnly = inputShowBreakMode == "Reversals Only"
+bool showAllBreaks = inputShowBreakMode == "All"
+bool showCurrentStateLabel = currentStateLabelDisplayMode != "Off"
+
+var float potentialHighLine = 0.0 // The Potential High Line keeps track of what a candle has to be higher than in order to be a new Potential (unconfirmed) High
+var float potentialLowLine = 0.0 // The Potential Low Line keeps track of what a candle has to be lower than in order to be a new Potential (unconfirmed) Low
+var string highTrailMode = "down" // The trailing mode for the Potential High line. I'd've liked to use some more "real" triggers rather than invent this abstraction, but it seemed the cleanest way in the end.
+var string lowTrailMode = "up" // The trailing mode for the Potential Low line
+var bool isPotentialHigh = false // A one-off state for every bar that is a Potential High (PH)
+var bool isPotentialLow = false // A one-off state for every bar that is a Potential Low (PL)
+var float lowToTake = low // A close lower than this confirms a Local High
+var float highToTake = high // A close higher than this confirms a Local Low
+var bool isConfirmHigh = false // A one-off state if this bar confirms a Local High
+var bool isSuppressedHigh = false // A one-off state if this bar would have been a Local High except that we need a Local Low first
+var bool isHigh = false // A one-off state if this bar is a Confirmed or Suppressed Local High
+var bool isConfirmLow = false // A one-off state if this bar confirms a Local Low
+var bool isSuppressedLow = false // A one-off state if this bar would have been a Local Low except that we need a Local High first
+var bool isLow = false // A one-off state if this bar is a Confirmed or Suppressed Local Low
+var int barIndexPH = na // The persistent bar_index of the most recent Potential High
+var int barIndexLocalHigh = na // The persistent bar_index of the most recent Local High
+var int barIndexPL = na // The persistent bar_index of the most recent Potential Low
+var int barIndexLocalLow = na // The persistent bar_index of the most recent Local Low
+var bool lookingForHigh = true // We only look for highs after lows
+var bool lookingForLow = true // We only look for lows after highs. In the beginning we look for both.
+var float highLine = high // The persistent value of the most recent confirmed Local High
+var float lowLine = low // The persistent value of the most recent confirmed Local Low
+var bool isHH = false // Is this Local High a Higher High?
+var bool isLH = false // Is it a Lower High?
+var bool isLL = false // Is this Local Low a Lower Low?
+var bool isHL = false // Is it a Higher Low?
+var string bullBearCondition = "Ranging" // Start off with a neutral market bias
+var string lastReversal = na // Keep track of whether the most recent reversal in market structure was bullish or bearish
+var bool isBullishBreak = false, var bool isBearishBreak = false // One-off states for bullish/bearish breaks in market structure (both reversals and continuations)
+var bool isBullishReversal = na, var bool isBearishReversal = na // One-off states for bullish/bearish reversals in market structure
+var bool overrideLow = false, var bool overrideHigh = false // These are states; they stay true for the whole time we have an unconfirmed High/Low until we confirm it
+var int overrideLowTimer = 0, var int overrideHighTimer = 0 // The counter for the number of bars since the Potential High/Low
+var bool forceConfirmLow = false, var bool forceConfirmHigh = false // The events for force-confirming Highs/Lows
+var bool isBTDEvent = false // One-off event for a Buy The Dip signal
+var bool isSTREvent = false // One-off event for a Sell The Rally signal
+var bool isBTDState = false // A state used to suppress later BTD signals
+var bool isSTRState = false // A state used to suppress later STR signals
+var bool drawBullBreakLine = na // Controls whether we draw the bull break lines
+var bool drawBearBreakLine = na // Controls whether we draw the bear break lines
+var line bullLine = na // Define a null bull break line up front so we can modify it inside an if statement later
+var line bearLine = na // Define a null bear break line up front so we can modify it inside an if statement later
+
+functionUpdatePHLine(_line,_trailMode) =>
+    // This function updates the Potential High line
+    float _outputline = _trailMode == "down" ? high : _trailMode == "up" and high > _line ? high : _line // When we're trailing down, reset the PH line to each candle high. When we trail up, persist if the high drops.
+potentialHighLine := functionUpdatePHLine(potentialHighLine,highTrailMode)
+
+functionUpdatePLLine(_line,_trailMode) =>
+    // This function updates the Potential Low line
+    float _outputline = _trailMode == "up" ? low : _trailMode == "down" and low < _line ? low : _line // When we're trailing up, reset the PL line to each candle low. When we trail down, persist if the low rises.
+potentialLowLine := functionUpdatePLLine(potentialLowLine,lowTrailMode)
+
+functionPrintPH(_line_1,_isCL,_barIndexPH,_barIndexPL,_trailMode) =>
+    // This function prints a Potential (unconfirmed) High
+    bool _isPH1 = high > _line_1 // A high that goes higher than the potentialHighLine is a Potential High.
+    // When we confirm a Low, make this candle a Potential High if it's higher than the previous one and if the most recent PH was further back than the Low we just confirmed.
+    // This fixes the case where we were confirming Local Highs that were earlier in time than the Low they were supposed to follow.
+    bool _isPH2 = _isCL and high > high[1] and _barIndexPH < _barIndexPL
+    bool _isPH = _isPH1 or _isPH2 // Let's keep the conditions separate for clarity.
+    string _internalTrailMode = _isPH ? "up" : _trailMode // When we print a PH, potentialHighLine switches to trail up.
+    int _internalBarIndexPH = _isPH ? bar_index : _barIndexPH // Update the bar_index to be the index of this bar (persists).
+    [_isPH,_internalTrailMode,_internalBarIndexPH]
+// This naming convention prepending r_ for returned value is only used once per variable, for getting the output from a function. It helps prevent accidentally using the wrong value from somewhere else.
+[r_isPotentialHigh,r_highTrailMode,r_barIndexPH] = functionPrintPH(potentialHighLine[1],isConfirmLow,barIndexPH,barIndexPL,highTrailMode) // Call the function to print a PH if appropriate
+isPotentialHigh := r_isPotentialHigh, highTrailMode := r_highTrailMode, barIndexPH := r_barIndexPH // Some shenanigans to get the values out
+
+functionPrintPL(_line_1,_isCH,_barIndexPH,_barIndexPL,_trailMode) =>
+    // This function prints a Potential (unconfirmed) Low
+    bool _isPL1 = low < _line_1 // A low that goes lower than the potentialLowLine is a Potential Low.
+    bool _isPL2 = _isCH and low < low[1] and _barIndexPL < _barIndexPH // Fix that pesky edge case.
+    bool _isPL = _isPL1 or _isPL2
+    string _internalTrailMode = _isPL ? "down" : _trailMode // When we print a PL, potentialLowLine switches to trail down.
+    int _internalBarIndexPL = _isPL ? bar_index : _barIndexPL // Update the bar_index to be the index of this bar (persists).
+    [_isPL,_internalTrailMode,_internalBarIndexPL]
+[r_isPotentialLow,r_lowTrailMode,r_barIndexPL] = functionPrintPL(potentialLowLine[1],isConfirmHigh,barIndexPH,barIndexPL,lowTrailMode)
+isPotentialLow := r_isPotentialLow, lowTrailMode := r_lowTrailMode, barIndexPL := r_barIndexPL
+
+functionUpdateLowToTake(_self,_isPH,_isHigh) =>
+    // This function updates the line that confirms a Local High, after we have calculated the Potential Highs and Lows
+    _output = _isPH ? low : _isHigh ? na : _self // Reset lowToTake line: to the low of a PH bar, to na if we printed any kind of High this bar, or persist.
+lowToTake := functionUpdateLowToTake(lowToTake,isPotentialHigh,isHigh)
+
+functionUpdateHighToTake(_self,_isPL,_isLow) =>
+    // This function updates the line that confirms a Local Low, after we have calculated the Potential Highs and Lows
+    _output =  _isPL ? high : _isLow ? na :_self // Reset highToTake line: to the high of a PL bar, to na if we printed any kind of Low this bar, or persist.
+highToTake := functionUpdateHighToTake(highToTake,isPotentialLow,isLow)
+
+functionConfirmHigh(_lowToTake,_isPH,_barIndexPH,_barIndexLocalHigh,_lookingForHigh) =>
+    // This function changes a Potential High to a Local (Confirmed) High or Suppressed High
+    bool _isHigh = ((close < _lowToTake) or (open < _lowToTake)) and not _isPH // Print a High if we closed (or gapped open!) below the lowToTake and this bar is not itself a renewed PH
+    bool _isConfirmHigh = _isHigh and _lookingForHigh // Confirm a Local High if the last confirmed fractal wasn't also a Local High
+    bool _isSuppressedHigh = _isHigh and not _lookingForHigh // If the last confirmed fractal *was* a Local High, print a Suppressed High instead (Confirmed and Suppressed are exclusive)
+    // Confirm the most recent Potential High as the Local High (Note: we cannot confirm an Interim High. It should have been either upgraded or discarded.)
+    _internalBarIndexLocalHigh = _isConfirmHigh ? _barIndexPH : _barIndexLocalHigh // Update the bar index for the Local High to be the index of the most recent Potential High
+    [_isHigh,_isConfirmHigh, _isSuppressedHigh,_internalBarIndexLocalHigh]
+[r_isHigh,r_isConfirmHigh, r1_isSuppressedHigh,r_barIndexLocalHigh] = functionConfirmHigh(lowToTake,isPotentialHigh,barIndexPH,barIndexLocalHigh,lookingForHigh)
+isHigh := r_isHigh, isConfirmHigh := r_isConfirmHigh, isSuppressedHigh := r1_isSuppressedHigh, barIndexLocalHigh := r_barIndexLocalHigh // I declare Shenanigans
+
+functionConfirmLow(_highToTake,_isPL,_barIndexPL,_barIndexLocalLow,_lookingForLow) =>
+    // This function changes a Potential Low to a Local (Confirmed) Low or Suppressed Low
+    bool _isLow = ((close > _highToTake) or (open > _highToTake)) and not _isPL // Print a Low if we closed above the highToTake and this bar isn't itself a renewed PL
+    bool _isConfirmLow = _isLow and _lookingForLow // Confirm a Local Low if this low follows a confirmed High
+    bool _isSuppressedLow = _isLow and not _lookingForLow // Suppress if last confirmed fractal was also a Low
+    // Confirm the most recent Potential Low as the Local Low (Note: we cannot confirm an Interim Low. It should have been either upgraded or discarded.)
+    _internalBarIndexLocalLow = _isConfirmLow ? _barIndexPL : _barIndexLocalLow // Update the bar index for the Local Low to be the index of the most recent Potential Low
+    [_isLow,_isConfirmLow,_isSuppressedLow,_internalBarIndexLocalLow]
+[r_isLow,r_isConfirmLow,r_isSuppressedLow,r_barIndexLocalLow] = functionConfirmLow(highToTake,isPotentialLow,barIndexPL,barIndexLocalLow,lookingForLow)
+isLow := r_isLow, isConfirmLow := r_isConfirmLow, isSuppressedLow := r_isSuppressedLow, barIndexLocalLow := r_barIndexLocalLow
+
+functionForceHL(_overrideLow,_overrideHigh,_isCL,_isCH,_isPL,_isPH,_isSL,_isSH,_isLow,_isHigh,_overrideLowTimer,_overrideHighTimer,
+  _inputForceBars,_barIndexPL,_barIndexPH,_barIndexLocalLow,_barIndexLocalHigh,_lookingForLow,_lookingForHigh) => 
+    // This function confirms a High/Low after n bars, and makes the same updates as the main confirm function. If we confirmed already the old-fashioned way then this will be skipped.
+    _iOverrideLow = _isCL ? false : _isPL ? true : _overrideLow // The order in which we evaluate conditions matters here: isConfirmLow is a switch and a filter in one.
+    _iOverrideHigh = _isCH ? false : _isPH ? true : _overrideHigh // The order in which we evaluate conditions matters here: isConfirmHigh is a switch and a filter in one.
+    _iOverrideLowTimer = _isPL ? 0 : _iOverrideLow ? _overrideLowTimer+1 : 0 // Increment the counter each bar. Reset on every new PL. Reset when we lose the override state.
+    _iOverrideHighTimer = _isPH ? 0 : _iOverrideHigh ? _overrideHighTimer+1 : 0 // Copying mutable variables is a workaround to use them inside functions
+    _forceConfirmLow = _iOverrideLowTimer == _inputForceBars ? true : false // Force confirmation if we've had n bars 
+    _forceConfirmHigh = _iOverrideHighTimer == _inputForceBars ? true : false
+    _iIsCL = _forceConfirmLow and _lookingForLow ? true : _isCL // Confirm the low if it's in season
+    _iIsCH = _forceConfirmHigh and _lookingForHigh ? true : _isCH // Confirm the low if it's in season
+    _iIsSL = _forceConfirmLow and not _lookingForLow ? true : _isSL // Suppress the low if it's not in season
+    _iIsSH = _forceConfirmHigh and not _lookingForHigh ? true : _isSH // Suppress the low if it's not in season
+    _iIsLow = _iIsCL or _iIsSL ? true : _isLow // A bit of retro-fitting
+    _iIsHigh = _iIsCH or _iIsSH ? true : _isHigh // A bit of retro-fitting
+    _internalBarIndexLocalLow = _forceConfirmLow ? _barIndexPL : _barIndexLocalLow // Update the bar index for the Local Low to be the index of the most recent Potential Low
+    _internalBarIndexLocalHigh = _forceConfirmHigh ? _barIndexPH : _barIndexLocalHigh // Update the bar index for the Local High to be the index of the most recent Potential High
+    [_iOverrideLow,_iOverrideHigh,_iOverrideLowTimer,_iOverrideHighTimer,_forceConfirmLow,_forceConfirmHigh,_internalBarIndexLocalLow,_internalBarIndexLocalHigh,_iIsCL,_iIsCH,_iIsSL,_iIsSH,_iIsLow,_iIsHigh]
+
+[r_overrideLow,r_overrideHigh,r_overrideLowTimer,r_overrideHighTimer,r_forceConfirmLow,r_forceConfirmHigh,r_barIndexLocalLowForce,r_barIndexLocalHighForce,r2_isConfirmLow,
+  r2_isConfirmHigh,r2_isSuppressedLow,r2_isSuppressedHigh,r2_isLow,r2_isHigh] = 
+  functionForceHL(overrideLow,overrideHigh,isConfirmLow,isConfirmHigh,isPotentialLow,isPotentialHigh,isSuppressedLow,isSuppressedHigh,isLow,isHigh,
+  overrideLowTimer,overrideHighTimer,inputForceBars,barIndexPL,barIndexPH,barIndexLocalLow,barIndexLocalHigh,lookingForLow,lookingForHigh)
+if inputForceConfirmation
+    overrideLow := r_overrideLow, overrideHigh := r_overrideHigh, overrideLowTimer := r_overrideLowTimer, overrideHighTimer := r_overrideHighTimer,
+    forceConfirmLow := r_forceConfirmLow, forceConfirmHigh := r_forceConfirmHigh, barIndexLocalLow := r_barIndexLocalLowForce, barIndexLocalHigh := r_barIndexLocalHighForce,
+    isConfirmLow := r2_isConfirmLow, isConfirmHigh := r2_isConfirmHigh, isSuppressedLow := r2_isSuppressedLow, isSuppressedHigh := r2_isSuppressedHigh, isLow := r2_isLow, isHigh := r2_isHigh
+[r2_isPotentialHigh,r2_highTrailMode,r2_barIndexPH] = functionPrintPH(potentialHighLine[1],isConfirmLow,barIndexPH,barIndexPL,highTrailMode)
+isPotentialHigh := r2_isPotentialHigh, highTrailMode := r2_highTrailMode, barIndexPH := r2_barIndexPH
+[r2_isPotentialLow,r2_lowTrailMode,r2_barIndexPL] = functionPrintPL(potentialLowLine[1],isConfirmHigh,barIndexPH,barIndexPL,lowTrailMode)
+isPotentialLow := r2_isPotentialLow, lowTrailMode := r2_lowTrailMode, barIndexPL := r_barIndexPL
+lookingForHigh := isConfirmHigh ? false : isConfirmLow ? true : lookingForHigh
+lookingForLow := isConfirmLow ? false : isConfirmHigh ? true : lookingForLow
+functionUpdatePHLineOnHigh(_PHline,_trailMode,_isHigh,_isLow,_barIndexPH,_barIndexPL) =>
+    bool _reset1 = _isHigh
+    bool _reset2 = _isLow and (barIndexPH < barIndexPL)
+    bool _reset = _reset1 or _reset2
+    float _iPHLine = _reset ?  high : _PHline 
+    string _iTrailMode = _isHigh ? "down" : _trailMode 
+    [_iPHLine,_iTrailMode]
+[r_potentialHighLine,r_highTrailModeUpdate2] = functionUpdatePHLineOnHigh(potentialHighLine,highTrailMode,isHigh,isLow,barIndexPH,barIndexPL)
+potentialHighLine := r_potentialHighLine, highTrailMode := r_highTrailModeUpdate2
+functionUpdatePLLineOnLow(_PLline,_trailMode,_isHigh,_isLow,_barIndexPH,_barIndexPL) =>
+    bool _reset1 = _isLow
+    bool _reset2 = _isHigh and (barIndexPL < barIndexPH) 
+    bool _reset = _reset1 or _reset2 
+    _iPLLine = _reset ? low : _PLline 
+    _iTrailMode = _isLow ? "up" : _trailMode 
+    [_iPLLine,_iTrailMode]
+[r_potentialLowLine,r_lowTrailModeUpdate2] = functionUpdatePLLineOnLow(potentialLowLine,lowTrailMode,isHigh,isLow,barIndexPH,barIndexPL)
+potentialLowLine := r_potentialLowLine, lowTrailMode := r_lowTrailModeUpdate2
+highLine := isConfirmHigh ? high[(bar_index - barIndexLocalHigh)] : highLine 
+lowLine := isConfirmLow ? low[(bar_index - barIndexLocalLow)] : lowLine 
+isHH := isConfirmHigh and highLine > highLine[1], isLH := isConfirmHigh and highLine <= highLine[1] 
+isLL := isConfirmLow and lowLine < lowLine[1], isHL := isConfirmLow and lowLine >= lowLine[1]
+functionIsBreak(_highLine,_lowLine,_lastReversal) =>
+    _isBullishBreak = (close > _highLine) and not (close[1] > _highLine[1]) 
+    _isBearishBreak = (close < _lowLine) and not (close[1] < _lowLine[1]) 
+    _isBullishReversal = _lastReversal == "Bullish" ? false : _isBullishBreak
+    _isBearishReversal = _lastReversal == "Bearish" ? false : _isBearishBreak
+    [_isBullishBreak,_isBearishBreak,_isBullishReversal,_isBearishReversal]
+[r_isBullishBreak,r_isBearishBreak,r_isBullishReversal,r_isBearishReversal] = functionIsBreak(highLine,lowLine,lastReversal)
+isBullishBreak := r_isBullishBreak, isBearishBreak := r_isBearishBreak, isBullishReversal := r_isBullishReversal, isBearishReversal := r_isBearishReversal
+
+lastReversal := isBullishReversal ? "Bullish" : isBearishReversal ? "Bearish" : lastReversal
+functionSetBullBear(_bullBearCondition,_isLL,_isHL,_isHH,_isLH,_isBullishBreak,_isBearishBreak) =>
+    string _rangeChange = _isBullishBreak ? "Bullish" : _isBearishBreak ? "Bearish" : _isLL ? "Bearish" : _isHL ? "Ranging" : _isHH ? "Bullish" : _isLH ? "Ranging" : na
+    string _bearChange = _isBullishBreak ? "Bullish" : _isBearishBreak ? "Bearish" : _isLL ? "Bearish" : _isHL ? "Ranging" : _isHH ? "Bullish" : _isLH ? "Bearish" : na
+    string _bullChange = _isBullishBreak ? "Bullish" : _isBearishBreak ? "Bearish" : _isLL ? "Bearish" : _isHL ? "Bullish" : _isHH ? "Bullish" : _isLH ? "Ranging" : na
+    string _outputBullBearCondition = _bullBearCondition == "Ranging" ? _rangeChange : _bullBearCondition == "Bearish" ? _bearChange : _bullBearCondition == "Bullish" ? _bullChange : na
+    _outputBullBearCondition
+bullBearCondition := isConfirmHigh or isConfirmLow or isBullishBreak or isBearishBreak ? functionSetBullBear(bullBearCondition,isLL,isHL,isHH,isLH,isBullishBreak,isBearishBreak) : bullBearCondition
+marketBiasColour = bullBearCondition == "Ranging" ? color.gray : bullBearCondition == "Bearish" ? color.maroon : bullBearCondition == "Bullish" ? color.teal : color.yellow
+
+bool isBullishBreakPlot = (showReversalsOnly and isBullishReversal) or (showAllBreaks and isBullishBreak)
+bool isBearishBreakPlot = (showReversalsOnly and isBearishReversal) or (showAllBreaks and isBearishBreak)
+color backgroundColour = inputMarketBiasBackgroundFill ? marketBiasColour : na
+
+// plots 
+
+//top
+plotchar(rsiblack, title="Market Condition Ticker", location=location.top, char="•", size=size.tiny, color=marketBiasColour, transp = 50)
+plotchar(isBullishBreakPlot, title="Bullish Trendline Break", location=location.top, char="•", size=size.tiny, color=#42a357, transp=0)
+plotchar(isBearishBreakPlot, title="Bearish Trendline Break", location=location.top, char="•", size=size.tiny, color=#ce2e52, transp=0)
+plotshape(rsiblack, title="RSI Ranging", location=location.top, style=shape.square, size=size.auto, color=color.gray, transp=80)
+plotshape(overs, title="RSI Oversold", location=location.top, style=shape.square, size=size.auto, color=#009983)
+plotshape(overb, title="RSI Overbought", location=location.top, style=shape.square, size=size.auto, color=#942889)
+plotshape(bullCond, title="Bullish Diversion RSI", location=location.top, style=shape.square, size=size.auto, color=bullColor)
+plotshape(hiddenBullCond, title="Hidden Bullish Diversion RSI", location=location.top, style=shape.square, size=size.auto, color=#009902)
+plotshape(bearCond, title="Bearish Diversion RSI", location=location.top, style=shape.square, size=size.auto, color=bearColor)
+plotshape(hiddenBearCond, title="Hidden Bearish Diversion RSI", location=location.top, style=shape.square, size=size.auto, color=#553193)
+
+//bottom
+
+plotshape(rsiblack, title="Monster Wave Bar", location=location.bottom, style=shape.square, size=size.auto, color=acColor)
+plotchar(rsiblack, title="Trend Finder", location=location.bottom, char="•", size=size.tiny, color=leadLine1 > leadLine2 ? #296d3f : #523784, transp=20)
+
+
+//middle
+
+plot(ao, title="Polfwack Waves", style=plot.style_area, color=(ao>=0 ? (ao[1] < ao ? #42a357 : #25617c) : (ao[1] < ao ? #ba67d7 : #7244b7)))
+plot(ao, title="Polfwack Waves Line", style=plot.style_line, linewidth=1, color=(ao<=0 ? (ao[1] > ao ? #42a357 : #25617c) : (ao[1] > ao ? #ba67d7 : #7244b7)))
+rsiMFIplot = plot(rsiMFIShow ? rsiMFI: na, title = 'RSI+MFI Area', color = rsiMFIColor, transp = 50)
+fill(rsiMFIplot, zLine, rsiMFIColor, transp = 60)
+plot(ac, title="Monster Waves", style=plot.style_area, color=acColor, transp=0)
+p1 = plot(upper, "Upper Bollinger Band", linewidth=1, color= leadLine1 > leadLine2 ? color.green : color.red, offset = offset, transp=50)
+p2 = plot(lower, "Lower Bollinger Band", linewidth=1, color= leadLine1 > leadLine2 ? color.green : color.red, offset = offset, transp=50)
+fill(p1, p2, title = "Bollinger Bands Background", color= leadLine1 > leadLine2 ? color.green : color.red, transp=80)
+plot(0, title="Zero", style=plot.style_line, linewidth=1, color=color.white, transp=50)
+// Divergence
+
+osc = ao
+plFound2 = na(pivotlow(osc, lbL, lbR)) ? false : true
+phFound2 = na(pivothigh(osc, lbL, lbR)) ? false : true
+_inRange2(cond) =>
+	bars = barssince(cond == true)
+	rangeLower <= bars and bars <= rangeUpper
+oscHL2 = osc[lbR] > valuewhen(plFound2, osc[lbR], 1) and _inRange2(plFound2[1])
+priceLL2 = low[lbR] < valuewhen(plFound2, low[lbR], 1)
+bullCond2 = plotBull and priceLL2 and oscHL2 and plFound2
+plot(
+     plFound2 ? osc[lbR] : na,
+     offset=-lbR,
+     title="Regular Bullish",
+     linewidth=1,
+     color=(bullCond2 ? bullColor : noneColor),
+     transp=0
+     )
+plotshape(
+	 bullCond2 ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bullish Label",
+	 style=shape.circle,
+	 location=location.absolute,
+	 size=size.auto,
+	 color=bullColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+oscLL2 = osc[lbR] < valuewhen(plFound2, osc[lbR], 1) and _inRange2(plFound2[1])
+priceHL2 = low[lbR] > valuewhen(plFound2, low[lbR], 1)
+hiddenBullCond2 = plotHiddenBull and priceHL2 and oscLL2 and plFound2
+plot(
+	 plFound2 ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bullish",
+	 linewidth=1,
+	 color=(hiddenBullCond2 ? hiddenBullColor : noneColor),
+	 transp=0
+	 )
+plotshape(
+	 hiddenBullCond2 ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bullish Label",
+     style=shape.circle,
+	 location=location.absolute,
+	 size=size.auto,
+	 color=bullColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+oscLH2 = osc[lbR] < valuewhen(phFound2, osc[lbR], 1) and _inRange2(phFound2[1])
+priceHH2 = high[lbR] > valuewhen(phFound2, high[lbR], 1)
+bearCond2 = plotBear and priceHH2 and oscLH2 and phFound2
+plot(
+	 phFound2 ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish",
+	 linewidth=1,
+	 color=(bearCond2 ? bearColor : noneColor),
+	 transp=0
+	 )
+plotshape(
+	 bearCond2 ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish Label",
+     style=shape.circle,
+	 location=location.absolute,
+	 size=size.auto,
+	 color=bearColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+oscHH2 = osc[lbR] > valuewhen(phFound2, osc[lbR], 1) and _inRange2(phFound2[1])
+priceLH2 = high[lbR] < valuewhen(phFound2, high[lbR], 1)
+hiddenBearCond2 = plotHiddenBear and priceLH2 and oscHH2 and phFound2
+plot(
+	 phFound2 ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bearish",
+	 linewidth=1,
+	 color=(hiddenBearCond ? hiddenBearColor : noneColor),
+	 transp=0
+	 )
+plotshape(
+	 hiddenBearCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bearish Label",
+     style=shape.circle,
+	 location=location.absolute,
+	 size=size.auto,
+	 color=bearColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+	 
+
+PHCond = pivothigh(ao, 1, 1)
+PLCond = pivotlow(ao, 1, 1)
+
+plotshape(pivothigh(ao, 1, 1), title="Polfwack Wave Pivot High", location=location.absolute, style=shape.diamond, size=size.auto, color=#e76f04, transp=00)
+plotshape(pivotlow(ao, 1, 1), title="Polfwack Wave Pivot Low", location=location.absolute, style=shape.circle, size=size.auto, color=#26ea72, transp=00)
+
+
+//Alerts
+
+alertcondition(bullCond, title="RSI Bullish Diversion", message="Regular Bull Div {{ticker}} XXmin")
+alertcondition(bearCond, title="RSI Bearish Diversion", message="Regular Bear Div {{ticker}} XXmin")
+alertcondition(hiddenBullCond, title="RSI Hidden Bullish Diversion", message="Hidden Bull Div {{ticker}} XXmin")
+alertcondition(hiddenBearCond, title="RSI Hidden Bearish Diversion", message="Hidden Bear Div {{ticker}} XXmin")
+alertcondition(bullCond2, title="Polfwack Wave Bullish Diversion", message="Regular Bull Div {{ticker}} XXmin")
+alertcondition(bearCond2, title="Polfwack Wave Bearish Diversion", message="Regular Bear Div {{ticker}} XXmin")
+alertcondition(hiddenBullCond2, title="Polfwack Wave Hidden Bullish Diversion", message="Hidden Bull Div {{ticker}} XXmin")
+alertcondition(hiddenBearCond2, title="Polfwack Wave Hidden Bearish Diversion", message="Hidden Bear Div {{ticker}} XXmin")
+alertcondition(PHCond, title="Pivot High", message="A High Pivot was detected on Polfwack Wave.\n\n[For intra-candle warnings, which may not be confirmed on close, set Options : Once Per Bar Close.]")
+alertcondition(PLCond, title="Pivot Low", message="A Low Pivot was detected on Polfwack Wave.\n\n[For intra-candle warnings, which may not be confirmed on close, set Options : Once Per Bar Close.]")
+alertcondition(crossKumoCond, title="Overall Trend Changed", message="A change in the overall Trend has occurred.\n\n[For intra-candle warnings, which may not be confirmed on close, set Options : Once Per Bar Close.]")
+alertcondition(isBullishBreak, title="Bullish Break", message="A Bullish Break in market structure has occurred.\n\n[For intra-candle warnings, which may not be confirmed on close, set Options : Once Per Bar Close.]")
+alertcondition(isBearishBreak, title="Bearish Break", message="A Bearish Break in market structure has occurred.\n\n[For intra-candle warnings, which may not be confirmed on close, set Options : Once Per Bar Close.]")
